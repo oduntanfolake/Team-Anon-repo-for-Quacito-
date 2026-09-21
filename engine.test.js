@@ -1,33 +1,35 @@
-/* ===========================================================
-   QueueLess — backend test harness
-   Run with:  node backend.test.js
-   Covers the Day 3 integration checks from the blueprint plus
-   the edge cases that break a naive queue implementation.
-   =========================================================== */
-
 var engine = require("./shared/engine.js");
+var { createMemoryRepo } = require("./shared/memory-repo.js");
 
-/* Drives the engine directly, holding the database in memory, so
-   the queue rules are tested without HTTP or disk in the way.
-   The API surface mirrors the client's so the assertions below
-   read the same as the behaviour they describe. */
-var db = engine.seed();
+/* Drives the rules against the in-memory repository, so the queue
+   logic is tested without a database file in the way. The same
+   rules run against SQLite on the server — api.test.js covers
+   that path over HTTP. */
+var repo = createMemoryRepo();
 
-function wrapRead(fn) { return function () { return Promise.resolve(fn.apply(null, [db].concat([].slice.call(arguments)))); }; }
-function wrapWrite(fn) { return function () { return Promise.resolve(fn.apply(null, [db].concat([].slice.call(arguments))).result); }; }
+function read(fn) {
+  return function () {
+    return Promise.resolve(fn.apply(null, [repo].concat([].slice.call(arguments))));
+  };
+}
+function write(fn) {
+  return function () {
+    return Promise.resolve(fn.apply(null, [repo].concat([].slice.call(arguments))).result);
+  };
+}
 
 var api = {
-  resetDemo: function () { db = engine.seed(); return Promise.resolve({ ok: true }); },
-  getServices: wrapRead(engine.getServices),
-  getQueueSnapshot: wrapRead(engine.getQueueSnapshot),
-  getTicket: wrapRead(engine.getTicket),
-  getWaitingList: wrapRead(engine.getWaitingList),
-  getStats: wrapRead(engine.getStats),
-  joinQueue: wrapWrite(engine.joinQueue),
-  leaveQueue: wrapWrite(engine.leaveQueue),
-  callNext: wrapWrite(engine.callNext),
-  markServed: wrapWrite(engine.markServed),
-  skip: wrapWrite(engine.skip),
+  resetDemo: function () { repo = createMemoryRepo(); return Promise.resolve({ ok: true }); },
+  getServices: read(engine.getServices),
+  getQueueSnapshot: read(engine.getQueueSnapshot),
+  getTicket: read(engine.getTicket),
+  getWaitingList: read(engine.getWaitingList),
+  getStats: read(engine.getStats),
+  joinQueue: write(engine.joinQueue),
+  leaveQueue: write(engine.leaveQueue),
+  callNext: write(engine.callNext),
+  markServed: write(engine.markServed),
+  skip: write(engine.skip),
   staffLogin: function (e, p) { return Promise.resolve(engine.staffLogin(e, p)); }
 };
 

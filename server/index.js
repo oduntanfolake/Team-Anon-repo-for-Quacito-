@@ -9,7 +9,7 @@
 
 const os = require("os");
 const { createApp } = require("./app");
-const store = require("./store");
+const database = require("./database");
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -29,18 +29,20 @@ const server = createApp().listen(PORT, "0.0.0.0", () => {
   for (const address of localAddresses()) {
     console.log(`  On your network:  http://${address}:${PORT}   <- use this for the QR code`);
   }
-  console.log(`\n  Data file: ${store.DATA_FILE}`);
+  const handle = database.connect();
+  console.log(`\n  Database: ${handle.file}  (${handle.driver})`);
   console.log("  Reset the demo: curl -X POST http://localhost:" + PORT + "/api/demo/reset\n");
 });
 
-// Make sure anything still queued reaches disk before we exit.
+// SQLite has already committed every write, so shutdown just
+// closes the connection cleanly.
 async function shutdown(signal) {
-  console.log(`\n  ${signal} received, saving and shutting down.`);
+  console.log(`\n  ${signal} received, shutting down.`);
   server.close();
   try {
-    await store.settled();
+    database.connect().close();
   } catch (err) {
-    console.error("  Failed to save on shutdown.", err.message);
+    console.error("  Failed to close the database.", err.message);
   }
   process.exit(0);
 }

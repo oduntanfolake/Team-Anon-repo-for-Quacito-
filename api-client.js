@@ -29,7 +29,10 @@
   var STAFF_SESSION_KEY = "queueless_staff_session";
 
   var engine = global.QueueLessEngine;
-  if (!engine) throw new Error("QueueLess: shared/engine.js must load before api-client.js");
+  var memoryRepo = global.QueueLessMemoryRepo;
+  if (!engine || !memoryRepo) {
+    throw new Error("QueueLess: shared/schema.js, shared/engine.js and shared/memory-repo.js must load before api-client.js");
+  }
 
   var mode = "connecting";
   var subscribers = [];
@@ -44,29 +47,26 @@
      LOCAL MODE
   --------------------------------------------------------- */
 
-  var localDb = null;
+  var repo = null;
 
-  function getLocalDb() {
-    if (localDb) return localDb;
+  function getRepo() {
+    if (repo) return repo;
+    var seedRows = null;
     try {
       var raw = global.localStorage && global.localStorage.getItem(LOCAL_DB_KEY);
       var parsed = raw ? JSON.parse(raw) : null;
-      if (parsed && Array.isArray(parsed.queues) && parsed.queues.length) {
-        localDb = parsed;
-        return localDb;
-      }
+      if (parsed && parsed.queues && parsed.queues.length) seedRows = parsed;
     } catch (err) {
       console.warn("QueueLess: could not read local data, reseeding.", err);
     }
-    localDb = engine.seed();
-    saveLocalDb();
-    return localDb;
+    repo = memoryRepo.createMemoryRepo(seedRows);
+    return repo;
   }
 
-  function saveLocalDb() {
+  function saveRepo() {
     try {
-      if (global.localStorage) {
-        global.localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(localDb));
+      if (global.localStorage && repo) {
+        global.localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(repo.snapshot()));
       }
     } catch (err) {
       console.warn("QueueLess: could not save local data.", err);
@@ -77,21 +77,21 @@
   if (global.addEventListener) {
     global.addEventListener("storage", function (event) {
       if (event.key === LOCAL_DB_KEY) {
-        localDb = null;
+        repo = null;
         notify();
       }
     });
   }
 
   function localRead(fn) {
-    return new Promise(function (resolve) { resolve(fn(getLocalDb())); });
+    return new Promise(function (resolve) { resolve(fn(getRepo())); });
   }
 
   function localWrite(fn) {
     return new Promise(function (resolve) {
-      var outcome = fn(getLocalDb());
+      var outcome = fn(getRepo());
       if (outcome.changed) {
-        saveLocalDb();
+        saveRepo();
         notify();
       }
       resolve(outcome.result);
@@ -182,7 +182,7 @@
     getOrganizations: function () {
       return call(
         function () { return request("GET", "/organizations"); },
-        function () { return localRead(function () { return engine.getOrganizations(); }); }
+        function () { return localRead(function (r) { return engine.getOrganizations(r); }); }
       );
     },
 
@@ -190,70 +190,70 @@
       var query = organizationID ? "?organizationID=" + encodeURIComponent(organizationID) : "";
       return call(
         function () { return request("GET", "/services" + query); },
-        function () { return localRead(function (db) { return engine.getServices(db, organizationID); }); }
+        function () { return localRead(function (r) { return engine.getServices(r, organizationID); }); }
       );
     },
 
     getQueueSnapshot: function (serviceID) {
       return call(
         function () { return request("GET", "/queues/" + encodeURIComponent(serviceID)); },
-        function () { return localRead(function (db) { return engine.getQueueSnapshot(db, serviceID); }); }
+        function () { return localRead(function (r) { return engine.getQueueSnapshot(r, serviceID); }); }
       );
     },
 
     joinQueue: function (serviceID, user) {
       return call(
         function () { return request("POST", "/queues/" + encodeURIComponent(serviceID) + "/tickets", user || {}); },
-        function () { return localWrite(function (db) { return engine.joinQueue(db, serviceID, user || {}); }); }
+        function () { return localWrite(function (r) { return engine.joinQueue(r, serviceID, user || {}); }); }
       );
     },
 
     getTicket: function (ticketID) {
       return call(
         function () { return request("GET", "/tickets/" + encodeURIComponent(ticketID)); },
-        function () { return localRead(function (db) { return engine.getTicket(db, ticketID); }); }
+        function () { return localRead(function (r) { return engine.getTicket(r, ticketID); }); }
       );
     },
 
     leaveQueue: function (ticketID) {
       return call(
         function () { return request("DELETE", "/tickets/" + encodeURIComponent(ticketID)); },
-        function () { return localWrite(function (db) { return engine.leaveQueue(db, ticketID); }); }
+        function () { return localWrite(function (r) { return engine.leaveQueue(r, ticketID); }); }
       );
     },
 
     callNext: function (serviceID) {
       return call(
         function () { return request("POST", "/queues/" + encodeURIComponent(serviceID) + "/call-next"); },
-        function () { return localWrite(function (db) { return engine.callNext(db, serviceID); }); }
+        function () { return localWrite(function (r) { return engine.callNext(r, serviceID); }); }
       );
     },
 
     markServed: function (serviceID) {
       return call(
         function () { return request("POST", "/queues/" + encodeURIComponent(serviceID) + "/serve"); },
-        function () { return localWrite(function (db) { return engine.markServed(db, serviceID); }); }
+        function () { return localWrite(function (r) { return engine.markServed(r, serviceID); }); }
       );
     },
 
     skip: function (serviceID) {
       return call(
         function () { return request("POST", "/queues/" + encodeURIComponent(serviceID) + "/skip"); },
-        function () { return localWrite(function (db) { return engine.skip(db, serviceID); }); }
+        function () { return localWrite(function (r) { return engine.skip(r, serviceID); }); }
       );
     },
 
     getWaitingList: function (serviceID) {
       return call(
         function () { return request("GET", "/queues/" + encodeURIComponent(serviceID) + "/tickets"); },
-        function () { return localRead(function (db) { return engine.getWaitingList(db, serviceID); }); }
+        function () { return localRead(function (r) { return engine.getWaitingList(r, serviceID); }); }
       );
     },
 
     getStats: function (serviceID) {
       return call(
         function () { return request("GET", "/stats/" + encodeURIComponent(serviceID)); },
-        function () { return localRead(function (db) { return engine.getStats(db, serviceID); }); }
+        function () { return localRead(function (r) { return engine.getStats(r, serviceID); }); }
       );
     },
 
@@ -292,8 +292,8 @@
       return call(
         function () { return request("POST", "/demo/reset"); },
         function () {
-          localDb = engine.seed();
-          saveLocalDb();
+          repo = memoryRepo.createMemoryRepo();
+          saveRepo();
           notify();
           return Promise.resolve({ ok: true });
         }

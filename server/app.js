@@ -17,7 +17,8 @@ const path = require("path");
 const express = require("express");
 const QRCode = require("qrcode");
 const engine = require("../shared/engine");
-const store = require("./store");
+const database = require("./database");
+const { createSqliteRepo } = require("./sqlite-repo");
 
 function createApp() {
   const app = express();
@@ -69,24 +70,23 @@ function createApp() {
   /* Helpers                                                  */
   /* ------------------------------------------------------- */
 
+  const repo = createSqliteRepo();
+
   // Wraps a read so engine errors become proper status codes.
   const read = handler => (req, res, next) => {
     try {
-      res.json(handler(store.getDb(), req));
+      res.json(handler(repo, req));
     } catch (err) {
       next(err);
     }
   };
 
-  // Wraps a write: run it, persist and broadcast only if it
-  // actually changed something.
+  // Wraps a write. The repository has already committed by the
+  // time this returns, so all that is left is telling everyone.
   const write = (reason, handler) => (req, res, next) => {
     try {
-      const { result, changed } = handler(store.getDb(), req);
-      if (changed) {
-        store.flush();
-        broadcast(reason);
-      }
+      const { result, changed } = handler(repo, req);
+      if (changed) broadcast(reason);
       res.json(result);
     } catch (err) {
       next(err);
@@ -98,40 +98,44 @@ function createApp() {
   /* ------------------------------------------------------- */
 
   app.get("/api/health", (req, res) => {
-    res.json({ ok: true, uptimeSeconds: Math.round(process.uptime()) });
+    res.json({
+      ok: true,
+      uptimeSeconds: Math.round(process.uptime()),
+      database: { driver: database.connect().driver, file: database.DB_FILE }
+    });
   });
 
-  app.get("/api/organizations", read(() => engine.getOrganizations()));
+  app.get("/api/organizations", read(repoArg => engine.getOrganizations(repoArg)));
 
-  app.get("/api/services", read((db, req) =>
-    engine.getServices(db, req.query.organizationID)));
+  app.get("/api/services", read((repo, req) =>
+    engine.getServices(repo, req.query.organizationID)));
 
-  app.get("/api/queues/:serviceID", read((db, req) =>
-    engine.getQueueSnapshot(db, req.params.serviceID)));
+  app.get("/api/queues/:serviceID", read((repo, req) =>
+    engine.getQueueSnapshot(repo, req.params.serviceID)));
 
-  app.get("/api/queues/:serviceID/tickets", read((db, req) =>
-    engine.getWaitingList(db, req.params.serviceID)));
+  app.get("/api/queues/:serviceID/tickets", read((repo, req) =>
+    engine.getWaitingList(repo, req.params.serviceID)));
 
-  app.get("/api/stats/:serviceID", read((db, req) =>
-    engine.getStats(db, req.params.serviceID)));
+  app.get("/api/stats/:serviceID", read((repo, req) =>
+    engine.getStats(repo, req.params.serviceID)));
 
-  app.get("/api/tickets/:ticketID", read((db, req) =>
-    engine.getTicket(db, req.params.ticketID)));
+  app.get("/api/tickets/:ticketID", read((repo, req) =>
+    engine.getTicket(repo, req.params.ticketID)));
 
-  app.post("/api/queues/:serviceID/tickets", write("join", (db, req) =>
-    engine.joinQueue(db, req.params.serviceID, req.body || {})));
+  app.post("/api/queues/:serviceID/tickets", write("join", (repo, req) =>
+    engine.joinQueue(repo, req.params.serviceID, req.body || {})));
 
-  app.delete("/api/tickets/:ticketID", write("leave", (db, req) =>
-    engine.leaveQueue(db, req.params.ticketID)));
+  app.delete("/api/tickets/:ticketID", write("leave", (repo, req) =>
+    engine.leaveQueue(repo, req.params.ticketID)));
 
-  app.post("/api/queues/:serviceID/call-next", write("call-next", (db, req) =>
-    engine.callNext(db, req.params.serviceID)));
+  app.post("/api/queues/:serviceID/call-next", write("call-next", (repo, req) =>
+    engine.callNext(repo, req.params.serviceID)));
 
-  app.post("/api/queues/:serviceID/serve", write("mark-served", (db, req) =>
-    engine.markServed(db, req.params.serviceID)));
+  app.post("/api/queues/:serviceID/serve", write("mark-served", (repo, req) =>
+    engine.markServed(repo, req.params.serviceID)));
 
-  app.post("/api/queues/:serviceID/skip", write("skip", (db, req) =>
-    engine.skip(db, req.params.serviceID)));
+  app.post("/api/queues/:serviceID/skip", write("skip", (repo, req) =>
+    engine.skip(repo, req.params.serviceID)));
 
   app.post("/api/auth/login", (req, res, next) => {
     try {
@@ -168,7 +172,7 @@ function createApp() {
   /* Rehearsal helper so the demo can be rerun without touching
      code or the data file. */
   app.post("/api/demo/reset", (req, res) => {
-    store.reset();
+    database.reset();
     broadcast("reset");
     res.json({ ok: true });
   });
