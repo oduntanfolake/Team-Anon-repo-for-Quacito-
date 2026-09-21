@@ -18,7 +18,7 @@
 const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
-const engine = require("./engine");
+const engine = require("../shared/engine");
 
 const DATA_DIR = path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "queue.json");

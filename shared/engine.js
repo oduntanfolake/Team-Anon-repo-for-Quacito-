@@ -473,7 +473,14 @@ function staffLogin(email, password) {
   return { email: account.email, name: account.name };
 }
 
-module.exports = {
+/* ---------------------------------------------------------
+   EXPORT
+   The same engine runs in two places: inside the Express server,
+   and inside the browser as the offline fallback. Keeping one
+   copy means the queue rules cannot drift between them.
+--------------------------------------------------------- */
+
+const ENGINE = {
   QueueError,
   seed,
   getOrganizations,
@@ -489,3 +496,6 @@ module.exports = {
   skip,
   staffLogin
 };
+
+if (typeof module !== "undefined" && module.exports) module.exports = ENGINE;
+if (typeof window !== "undefined") window.QueueLessEngine = ENGINE;

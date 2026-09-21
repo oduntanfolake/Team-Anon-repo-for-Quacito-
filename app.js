@@ -2,11 +2,10 @@
    QueueLess — frontend logic
    Handles: view navigation and rendering.
 
-   All queue data and queue rules now live in backend.js
-   (QueueLess.api). This file only asks the backend for data and
-   paints it; it never mutates queue state directly. Every
-   api.* call is a Promise, so swapping the backend's storage
-   for Firebase/Supabase needs no change here.
+   All queue data and queue rules live behind QueueLess.api
+   (api-client.js -> the Express server, or the same engine run
+   locally if the server is unreachable). This file only asks for
+   data and paints it; it never mutates queue state directly.
    =========================================================== */
 
 var api = window.QueueLess.api;
@@ -332,7 +331,70 @@ function renderStaffQueue() {
     document.getElementById("staff-stat-served").textContent = stats.servedToday;
     document.getElementById("staff-stat-wait").textContent =
       stats.avgWaitMinutes === null ? "—" : stats.avgWaitMinutes + "m";
+
+    renderServedChart(stats.servedByHour);
   }).catch(reportError);
+}
+
+/* Served-per-hour bars, scaled to the busiest hour. Replaces the
+   fixed heights the markup used to carry, so the chart is now
+   evidence rather than decoration. */
+function renderServedChart(servedByHour) {
+  var chart = document.getElementById("staff-bar-chart");
+  if (!chart) return;
+
+  chart.innerHTML = "";
+  if (!servedByHour || !servedByHour.length) {
+    var empty = document.createElement("p");
+    empty.className = "chart-empty";
+    empty.textContent = "No one has been served yet today.";
+    chart.appendChild(empty);
+    return;
+  }
+
+  var busiest = servedByHour.reduce(function (max, row) {
+    return Math.max(max, row.count);
+  }, 0) || 1;
+
+  var peakLabelled = false;
+
+  servedByHour.forEach(function (row) {
+    // Label the busiest hour only, and only once if several tie.
+    var isPeak = row.count === busiest && !peakLabelled;
+    if (isPeak) peakLabelled = true;
+
+    var col = document.createElement("div");
+    col.className = "bar-col" + (isPeak ? " is-peak" : "");
+    col.title = row.count + " served at " + formatHour(row.hour);
+
+    var track = document.createElement("div");
+    track.className = "bar-track";
+
+    var value = document.createElement("span");
+    value.className = "bar-value";
+    value.textContent = row.count;
+
+    var bar = document.createElement("div");
+    bar.className = "bar";
+    // A floor of 4% keeps a quiet hour visible instead of vanishing.
+    bar.style.height = Math.max(4, Math.round((row.count / busiest) * 100)) + "%";
+
+    var caption = document.createElement("span");
+    caption.className = "bar-label";
+    caption.textContent = formatHour(row.hour);
+
+    bar.appendChild(value);
+    track.appendChild(bar);
+    col.appendChild(track);
+    col.appendChild(caption);
+    chart.appendChild(col);
+  });
+}
+
+function formatHour(hour) {
+  var suffix = hour < 12 ? "AM" : "PM";
+  var display = hour % 12 === 0 ? 12 : hour % 12;
+  return display + " " + suffix;
 }
 
 function openStaffDashboard() {
@@ -395,6 +457,62 @@ document.getElementById("btn-skip-ticket").addEventListener("click", function ()
 
 document.getElementById("btn-staff-theme").addEventListener("click", function () {
   document.body.classList.toggle("theme-dark");
+});
+
+/* ---------------------------------------------------------
+   ENTRANCE QR POSTER
+   The QR is rendered by the server so the page needs no QR
+   library and still works with no internet at the venue. It
+   encodes the address this page was actually opened on, which is
+   the one a phone on the same wifi can reach.
+--------------------------------------------------------- */
+
+function renderQr() {
+  var frame = document.getElementById("qr-frame");
+  var urlLabel = document.getElementById("qr-url");
+  var hint = document.getElementById("qr-hint");
+  var target = window.location.origin + "/";
+
+  urlLabel.textContent = target;
+
+  if (api.getMode() !== "server") {
+    frame.innerHTML = '<p class="qr-placeholder" id="qr-placeholder"></p>';
+    frame.firstChild.textContent = "QR needs the server running.";
+    hint.textContent = "Start the server with `npm start`, then reopen this screen.";
+    return Promise.resolve();
+  }
+
+  hint.textContent = "Print this, or show it on screen for a phone to scan.";
+
+  return fetch(api.getQrEndpoint() + "?url=" + encodeURIComponent(target))
+    .then(function (res) {
+      if (!res.ok) throw new Error("Could not render the QR code.");
+      return res.text();
+    })
+    .then(function (svg) { frame.innerHTML = svg; })
+    .catch(function (err) {
+      frame.innerHTML = '<p class="qr-placeholder"></p>';
+      frame.firstChild.textContent = err.message;
+    });
+}
+
+document.getElementById("btn-show-qr").addEventListener("click", function () {
+  showView("qr");
+  renderQr();
+});
+
+/* A quiet badge on the home screen when the server is not up, so
+   the team notices before the audience does. */
+api.whenReady().then(function (mode) {
+  var pill = document.getElementById("mode-pill");
+  if (!pill) return;
+  if (mode === "server") {
+    pill.hidden = true;
+  } else {
+    pill.hidden = false;
+    pill.textContent = "Offline mode";
+    pill.title = "No server reachable — this browser is running the queue on its own.";
+  }
 });
 
 /* Live updates: the backend tells us when anything changes,

@@ -15,7 +15,8 @@
 
 const path = require("path");
 const express = require("express");
-const engine = require("./engine");
+const QRCode = require("qrcode");
+const engine = require("../shared/engine");
 const store = require("./store");
 
 function createApp() {
@@ -136,6 +137,29 @@ function createApp() {
     try {
       const { email, password } = req.body || {};
       res.json(engine.staffLogin(email, password));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /* ------------------------------------------------------- */
+  /* QR code                                                  */
+  /* ------------------------------------------------------- */
+
+  /* Rendered server-side so the page needs no QR library and
+     still works with no internet at the venue. Defaults to the
+     address the request already came in on, which is the one
+     that will actually work for a phone on the same wifi. */
+  app.get("/api/qr", async (req, res, next) => {
+    try {
+      const target = req.query.url || `${req.protocol}://${req.get("host")}/`;
+      const svg = await QRCode.toString(String(target), {
+        type: "svg",
+        margin: 1,
+        width: 240,
+        errorCorrectionLevel: "M"
+      });
+      res.type("image/svg+xml").set("Cache-Control", "no-cache").send(svg);
     } catch (err) {
       next(err);
     }

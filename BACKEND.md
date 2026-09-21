@@ -1,18 +1,77 @@
-# QueueLess — Backend (Person 2)
+# QueueLess — Backend
 
-`backend.js` is the queue engine. It owns all data and all queue rules.
-Nothing else in the app should change queue state directly — the frontend
-asks the backend and paints the answer.
-
-## Running the tests
+## Run it
 
 ```bash
-node backend.test.js     # 33 checks, no dependencies
+npm install
+npm start          # http://localhost:3000
+npm test           # 63 checks: engine rules + HTTP API
 ```
+
+The server prints a `http://192.168.x.x:3000` address on startup. **That is the
+one to use for the demo** — phones on the same wifi can reach it, `localhost`
+cannot.
+
+Reset to the opening state between rehearsals:
+
+```bash
+npm run reset
+```
+
+## Layout
+
+```
+shared/engine.js    queue rules — no HTTP, no disk, no browser
+server/index.js     entry point, prints the network address
+server/app.js       Express routes, SSE, QR rendering
+server/store.js     JSON file persistence
+api-client.js       browser client -> window.QueueLess.api
+app.js              UI rendering only
+```
+
+`shared/engine.js` runs in **both** Node and the browser. One copy of the rules,
+so the server and the offline fallback cannot drift apart.
+
+## Two modes
+
+The client probes `/api/health` at startup:
+
+- **server** — normal. Calls the API over HTTP, live updates over Server-Sent
+  Events. Phones and laptops all see one queue.
+- **local** — the safety net. If the server is unreachable the same engine runs
+  in the browser against `localStorage`. The app stays fully usable, but cannot
+  sync across devices. An "Offline mode" badge appears on the home screen.
+
+The fallback exists so a dead laptop or locked-down venue wifi cannot sink the
+demo.
+
+## Endpoints
+
+| Method | Path | Does |
+|---|---|---|
+| GET | `/api/health` | liveness probe |
+| GET | `/api/organizations` | the four organizations |
+| GET | `/api/services?organizationID=` | services + live waiting counts |
+| GET | `/api/queues/:serviceID` | now serving, waiting, ETA |
+| POST | `/api/queues/:serviceID/tickets` | join — issues the next number |
+| GET | `/api/tickets/:ticketID` | position, ETA, your-turn flag |
+| DELETE | `/api/tickets/:ticketID` | leave the queue |
+| POST | `/api/queues/:serviceID/call-next` | advance the queue |
+| POST | `/api/queues/:serviceID/serve` | close out the counter |
+| POST | `/api/queues/:serviceID/skip` | record a no-show |
+| GET | `/api/queues/:serviceID/tickets` | dashboard waiting list |
+| GET | `/api/stats/:serviceID` | computed statistics |
+| POST | `/api/auth/login` | demo staff login |
+| GET | `/api/qr?url=` | QR code as SVG |
+| GET | `/api/events` | live updates (SSE) |
+| POST | `/api/demo/reset` | back to the opening state |
+
+Errors return the right status — 404 unknown service/ticket, 401 bad password,
+409 an action that does not apply — with `{ "error": "..." }`.
 
 ## Data model
 
-Follows section 9 of the 5-Day Blueprint.
+Section 9 of the 5-Day Blueprint.
 
 | Collection | Fields |
 |---|---|
@@ -21,96 +80,42 @@ Follows section 9 of the 5-Day Blueprint.
 | `queues` | `queueID`, `serviceID`, `currentNumber`, `nextNumber`, `status` |
 | `tickets` | `ticketID`, `userID`, `queueID`, `queueNumber`, `queueLabel`, `serviceID`, `joinedAt`, `calledAt`, `closedAt`, `status` |
 
-Ticket status moves through:
-
 ```
 waiting -> serving -> served
 waiting -> serving -> skipped
 waiting -> left                 (the user cancelled)
 ```
 
-Each service has its own number sequence and letter prefix, so Document
-Collection issues A037, A038... while Student Registration issues B018, B019...
+Each service has its own sequence and prefix: Document Collection issues A037,
+A038… while Student Registration issues B018, B019…
 
-## API
+## The three staff actions are different
 
-Every method returns a Promise and is named after the REST call it stands
-in for. Read `window.QueueLess.api`.
+The easiest thing to get wrong:
 
-| Method | Stands in for |
-|---|---|
-| `getOrganizations()` | `GET /organizations` |
-| `getServices(orgID)` | `GET /services` |
-| `getQueueSnapshot(serviceID)` | `GET /queues/:id` |
-| `joinQueue(serviceID, user)` | `POST /queues/:id/tickets` |
-| `getTicket(ticketID)` | `GET /tickets/:id` |
-| `leaveQueue(ticketID)` | `DELETE /tickets/:id` |
-| `callNext(serviceID)` | `POST /queues/:id/call-next` |
-| `markServed(serviceID)` | `POST /queues/:id/serve` |
-| `skip(serviceID)` | `POST /queues/:id/skip` |
-| `getWaitingList(serviceID)` | `GET /queues/:id/tickets` |
-| `getStats(serviceID)` | `GET /stats/:id` |
-| `staffLogin(email, password)` | `POST /auth/login` |
-
-Errors reject, so use `.catch()`:
-
-```js
-api.joinQueue("doc-collection", { name: "Ada" })
-   .then(ticket => console.log(ticket.ticketLabel))   // "A050"
-   .catch(err => console.warn(err.message));
-```
-
-## The three staff actions are genuinely different
-
-This is the part that is easy to get wrong:
-
-- **CALL NEXT** — closes out whoever is at the counter (marks them served),
-  then promotes the next waiting person.
-- **MARK SERVED** — closes out the person at the counter and stops there.
-  Nobody is promoted; staff press CALL NEXT when they are ready.
-- **SKIP** — marks the current person `skipped` (they did not show up) and
-  promotes the next one. A skipped ticket is **not** counted in
-  "served today".
+- **CALL NEXT** — closes out whoever is at the counter, then promotes the next
+  person.
+- **MARK SERVED** — closes out the counter and stops. Nobody is promoted.
+- **SKIP** — records a no-show and promotes the next person. A skipped ticket is
+  **not** counted in "served today".
 
 ## Position and waiting time
 
-`peopleAhead` is counted from the live queue, not worked out from the
-ticket number. That matters: if someone ahead of you leaves or is skipped,
-your position improves straight away and your number stays the same.
+`peopleAhead` is counted from the live queue, not derived from the ticket
+number. If someone ahead of you leaves or is skipped you move up immediately,
+and your number never changes.
 
-`estimatedWaitMinutes` is `peopleAhead x average service time`. The average
-is measured from the last 20 genuinely served tickets once there are at
-least three, so the estimate sharpens as the day goes on; before that it
-falls back to the service's seed figure.
+`estimatedWaitMinutes` is `peopleAhead × average service time`, measured from
+the last 20 genuinely served tickets once there are at least three, so the
+estimate sharpens through the day.
 
 ## Statistics
 
-`getStats()` computes everything from ticket rows — nothing is hardcoded.
-It returns `servedToday`, `skippedToday`, `currentlyWaiting`,
-`avgWaitMinutes` (join -> called), `avgServiceMinutes` (called -> closed) and
-`servedByHour`, which is ready for the optional bar chart in the blueprint.
-
-## Real-time
-
-`api.subscribe(fn)` fires `fn` after every change, including changes made
-in another browser tab, and returns an unsubscribe function. That is what
-keeps the student's phone view and the staff dashboard in step during the
-demo. The status and dashboard screens also poll every 3 seconds as a
-safety net.
-
-## Demo reset
-
-`api.resetDemo()` puts the data back to its opening state (Document
-Collection serving A037, 12 waiting, 84 served today) so the demo can be
-rehearsed repeatedly without editing code. From the browser console:
-
-```js
-QueueLess.api.resetDemo().then(() => location.reload());
-```
+Computed from ticket rows — nothing hardcoded. `servedToday`, `skippedToday`,
+`currentlyWaiting`, `avgWaitMinutes` (join → called), `avgServiceMinutes`
+(called → closed), and `servedByHour`, which draws the dashboard chart.
 
 ## Moving to Firebase or Supabase
 
-Storage is isolated in the `Storage` adapter at the top of `backend.js`
-(`read`, `write`, `clear`). Point those three at Firebase or Supabase and
-the rest of the file, and all of the frontend, stays as it is. The API is
-already async, so no call site needs to change.
+Reimplement `loadSync()` and `writeNow()` in `server/store.js`. Nothing else in
+the server touches storage.
