@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QueueLess</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+
+  <div class="app-frame">
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <!-- ============ SCREEN 1: HOME ============ -->
+    <section class="view active" id="view-home" data-view="home">
+      <div class="home-hero">
+        <p class="eyebrow-mark" aria-hidden="true">●</p>
+        <h1 class="wordmark">QueueLess</h1>
+        <p class="tagline">Skip the wait. Not your turn.</p>
+        <p class="home-copy">Join a queue from your phone, then go do something
+          better with your time. We'll tell you when you're close.</p>
+      </div>
+
+      <div class="home-actions">
+        <button class="btn btn-primary btn-block" id="btn-join-queue">
+          Join a Queue
+        </button>
+        <button class="btn btn-ghost btn-block" id="btn-staff-login">
+          Staff Login
+        </button>
+      </div>
+
+      <p class="home-footnote">University Administration &middot; Prototype</p>
+    </section>
+
+    <!-- ============ SCREEN 2: SERVICE SELECTION ============ -->
+    <section class="view" id="view-services" data-view="services">
+      <header class="screen-header">
+        <button class="btn-back" data-back="home" aria-label="Back">&larr;</button>
+        <h2>Choose a service</h2>
+        <p class="screen-sub">University Administration</p>
+      </header>
+
+      <ul class="service-list" id="service-list">
+        <!-- populated by app.js -->
+      </ul>
+    </section>
+
+    <!-- ============ SCREEN 3: JOIN QUEUE ============ -->
+    <section class="view" id="view-join" data-view="join">
+      <header class="screen-header">
+        <button class="btn-back" data-back="services" aria-label="Back">&larr;</button>
+        <h2 id="join-service-name">Service</h2>
+        <p class="screen-sub">Here's what the queue looks like right now</p>
+      </header>
+
+      <div class="stat-card">
+        <div class="stat-row">
+          <span class="stat-label">Currently serving</span>
+          <span class="stat-value" id="join-current-number">A037</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">People waiting</span>
+          <span class="stat-value" id="join-people-waiting">12</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Estimated wait</span>
+          <span class="stat-value" id="join-est-wait">~36 min</span>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-block btn-large" id="btn-confirm-join">
+        Join Queue
+      </button>
+    </section>
+
+    <!-- ============ SCREEN 4: DIGITAL TICKET ============ -->
+    <section class="view" id="view-ticket" data-view="ticket">
+      <div class="ticket" id="ticket">
+        <div class="ticket-top">
+          <p class="ticket-label">Your number</p>
+          <p class="ticket-number" id="ticket-number">A050</p>
+          <p class="ticket-service" id="ticket-service-name">Document Collection</p>
+        </div>
+
+        <div class="perforation" aria-hidden="true"></div>
+
+        <div class="ticket-bottom">
+          <div class="stat-row">
+            <span class="stat-label">People ahead</span>
+            <span class="stat-value" id="ticket-ahead">12</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Estimated wait</span>
+            <span class="stat-value" id="ticket-wait">~36 min</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Currently serving</span>
+            <span class="stat-value" id="ticket-current">A037</span>
+          </div>
+          <p class="ticket-status" id="ticket-status">You're in the queue</p>
+        </div>
+      </div>
+
+      <p class="ticket-note">You can leave the waiting area. We'll track your
+        position here — check back or tap below to watch it update.</p>
+
+      <div class="home-actions">
+        <button class="btn btn-primary btn-block" id="btn-track-status">
+          Track My Position
+        </button>
+        <button class="btn btn-danger-ghost btn-block" id="btn-leave-queue">
+          Leave Queue
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ SCREEN 5: QUEUE STATUS ============ -->
+    <section class="view" id="view-status" data-view="status">
+      <header class="screen-header">
+        <button class="btn-back" data-back="ticket" aria-label="Back">&larr;</button>
+        <h2>Queue status</h2>
+        <p class="screen-sub" id="status-service-name">Document Collection</p>
+      </header>
+
+      <div class="status-number-block">
+        <p class="stat-label">Your number</p>
+        <p class="status-number" id="status-number">A050</p>
+      </div>
+
+      <div class="progress-track" aria-hidden="true">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-row">
+          <span class="stat-label">Currently serving</span>
+          <span class="stat-value" id="status-current">A045</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">People ahead</span>
+          <span class="stat-value" id="status-ahead">4</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Estimated wait</span>
+          <span class="stat-value" id="status-wait">~12 min</span>
+        </div>
+      </div>
+
+      <p class="status-message" id="status-message">You're getting close!</p>
+
+      <!-- Dev-only control — stands in for Person 2's real-time updates.
+         Remove once the backend pushes live queue changes. -->
+      <button class="btn btn-mock btn-block" id="btn-simulate-advance">
+        Demo: staff calls next
+      </button>
+    </section>
+
+
+    <!-- ============ SCREEN 6: STAFF LOGIN ============ -->
+    <section class="view" id="view-staff-login" data-view="staff-login">
+      <header class="screen-header">
+        <button class="btn-back" data-back="home" aria-label="Back">&larr;</button>
+        <h2>Staff Login</h2>
+        <p class="screen-sub">QueueLess Staff Admin Portal</p>
+      </header>
+      <div class="staff-login-card">
+        <label for="staff-email">Email</label>
+        <input type="email" id="staff-email" value="admin@queueless.com" placeholder="Email" autocomplete="username">
+        <label for="staff-password">Password</label>
+        <input type="password" id="staff-password" value="admin123" placeholder="Password" autocomplete="current-password">
+        <button class="btn btn-primary btn-block btn-large" id="btn-staff-auth">LOGIN</button>
+        <p class="staff-login-error" id="staff-login-error" role="alert"></p>
+      </div>
+    </section>
+
+    <!-- ============ SCREEN 7: STAFF DASHBOARD ============ -->
+    <section class="view staff-dashboard" id="view-staff-dashboard" data-view="staff-dashboard">
+      <header class="staff-header">
+        <div>
+          <div class="staff-logo">QUEUELESS</div>
+          <div class="staff-tagline">Skip the wait. Not your turn.</div>
+        </div>
+        <div class="staff-header-actions">
+          <button class="btn btn-outline" id="btn-staff-theme">🌓 Dark/Light Mode</button>
+          <button class="btn btn-outline" id="btn-staff-logout">Logout</button>
+        </div>
+      </header>
+
+      <div class="stats-grid">
+        <div class="stat-card"><div class="staff-stat-label">CURRENTLY SERVING</div><div class="stat-val" id="staff-stat-serving">A037</div></div>
+        <div class="stat-card"><div class="staff-stat-label">IN QUEUE</div><div class="stat-val" id="staff-stat-waiting">0</div></div>
+        <div class="stat-card"><div class="staff-stat-label">SERVED TODAY</div><div class="stat-val" id="staff-stat-served">0</div></div>
+        <div class="stat-card"><div class="staff-stat-label">AVG WAIT TIME</div><div class="stat-val" id="staff-stat-wait">18m</div></div>
+      </div>
+
+      <div class="controls-panel">
+        <span class="counter-badge">Active Terminal: Counter 2</span>
+        <div class="staff-muted">Now Serving Ticket</div>
+        <div class="current-number" id="staff-current-ticket">A037</div>
+        <div class="action-btns">
+          <button class="btn btn-primary" id="btn-call-next">CALL NEXT</button>
+          <button class="btn btn-warning" id="btn-mark-served">MARK SERVED</button>
+          <button class="btn btn-danger" id="btn-skip-ticket">SKIP</button>
+        </div>
+      </div>
+
+      <div class="section-title">Live Waiting Queue</div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Pos</th><th>Ticket #</th><th>Service</th><th>Status</th></tr></thead>
+          <tbody id="staff-queue-body"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Served Per Hour (Today)</div>
+      <div class="graph-container">
+        <div class="bar-chart">
+          <div class="bar-col"><div class="bar" style="height:30%"></div><span class="bar-label">9 AM</span></div>
+          <div class="bar-col"><div class="bar" style="height:60%"></div><span class="bar-label">10 AM</span></div>
+          <div class="bar-col"><div class="bar" style="height:90%"></div><span class="bar-label">11 AM</span></div>
+          <div class="bar-col"><div class="bar" style="height:75%"></div><span class="bar-label">12 PM</span></div>
+          <div class="bar-col"><div class="bar" style="height:40%"></div><span class="bar-label">1 PM</span></div>
+          <div class="bar-col"><div class="bar" style="height:85%"></div><span class="bar-label">2 PM</span></div>
+          <div class="bar-col"><div class="bar" style="height:50%"></div><span class="bar-label">3 PM</span></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
