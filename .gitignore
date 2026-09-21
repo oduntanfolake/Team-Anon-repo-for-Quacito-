@@ -1,0 +1,9 @@
+# Dependencies
+node_modules/
+
+# Runtime queue data — seeded on first start, not source
+server/data/
+
+# Editor / OS noise
+.DS_Store
+.vscode/
