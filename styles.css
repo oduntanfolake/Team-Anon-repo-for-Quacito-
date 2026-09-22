@@ -713,3 +713,109 @@ button {
     padding: 32px 28px 40px;
   }
 }
+
+/* ============================================================
+   ENTRANCE QR POSTER  (blueprint section 14)
+   ============================================================ */
+
+.qr-poster { text-align:center; padding:8px 4px 24px; }
+
+.qr-frame {
+  display:flex; align-items:center; justify-content:center;
+  width:min(260px, 72vw); aspect-ratio:1; margin:0 auto 18px;
+  background:#fff; border:1px solid var(--line, #E2E8F0);
+  border-radius:16px; padding:14px;
+  box-shadow:0 6px 20px rgba(15,23,42,.08);
+}
+.qr-frame svg { width:100%; height:100%; display:block; }
+
+.qr-placeholder { font-size:.85rem; color:#64748B; margin:0; }
+
+.qr-url {
+  font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size:.82rem; word-break:break-all; color:#0F172A;
+  background:#F1F5F9; border-radius:8px;
+  padding:8px 10px; margin:0 auto 10px; max-width:320px;
+}
+
+.qr-hint { font-size:.82rem; color:#64748B; margin:0 auto; max-width:300px; line-height:1.5; }
+
+/* Tells the team at a glance whether the server is live. Only
+   shown when running without it. */
+.mode-pill {
+  display:inline-block; margin-left:6px; padding:2px 8px;
+  border-radius:999px; font-size:.68rem; font-weight:700;
+  text-transform:uppercase; letter-spacing:.04em;
+  background:#FEF3C7; color:#92400E;
+}
+
+/* An author display rule beats the UA stylesheet's [hidden]
+   rule, so the attribute needs honouring explicitly. */
+.mode-pill[hidden] { display:none; }
+
+.theme-dark .qr-frame { background:#fff; border-color:#334155; }
+.theme-dark .qr-url { background:#1E293B; color:#E2E8F0; }
+.theme-dark .qr-hint, .theme-dark .qr-placeholder { color:#94A3B8; }
+
+/* ============================================================
+   SERVED-PER-HOUR CHART  (blueprint section 12)
+   Single series, so one hue and no legend — the section title
+   names it. Both steps are taken from the app's own accent
+   tokens and checked against their surface for contrast.
+   ============================================================ */
+
+.staff-dashboard .bar-chart {
+  --chart-bar: var(--color-accent-dark);
+  display:flex; align-items:stretch; gap:2px;
+  height:170px; padding-top:18px;
+  border-bottom:1px solid var(--color-border);
+}
+
+.staff-dashboard .bar-col {
+  flex:1 1 0; min-width:0;
+  display:flex; flex-direction:column; align-items:stretch;
+}
+
+/* Bars grow from the axis, so height is read from a common baseline. */
+.staff-dashboard .bar-track {
+  flex:1; display:flex; align-items:flex-end; position:relative;
+}
+
+.staff-dashboard .bar {
+  position:relative;
+  width:100%; max-width:34px; margin:0 auto;
+  background:var(--chart-bar);
+  border-radius:4px 4px 0 0;
+  transition:opacity .12s ease;
+}
+
+.staff-dashboard .bar-col:hover .bar { opacity:.78; }
+
+/* Values stay in ink, never the series color. Only the busiest
+   hour is labelled outright; the rest appear on hover, so the
+   axis is not a wall of numbers. */
+/* Sits on top of its own bar, so the number tracks the bar's
+   height instead of floating at a fixed point on the axis. */
+.staff-dashboard .bar-value {
+  position:absolute; bottom:100%; left:50%;
+  transform:translateX(-50%); margin-bottom:4px;
+  font-size:.7rem; font-weight:700; color:var(--color-ink);
+  opacity:0; transition:opacity .12s ease; pointer-events:none;
+}
+.staff-dashboard .bar-col:hover .bar-value,
+.staff-dashboard .bar-col.is-peak .bar-value { opacity:1; }
+
+.staff-dashboard .bar-label {
+  margin-top:6px; text-align:center;
+  font-size:.66rem; color:var(--color-ink-soft);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+.staff-dashboard .chart-empty {
+  display:flex; align-items:center; justify-content:center;
+  height:100%; font-size:.85rem; color:var(--color-ink-soft);
+}
+
+/* Dark mode is stepped separately, not flipped: this green is
+   the one that passes the lightness band on the dark surface. */
+.theme-dark .staff-dashboard .bar-chart { --chart-bar:#2fa866; }

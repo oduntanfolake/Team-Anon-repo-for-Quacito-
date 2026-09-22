@@ -1,0 +1,25 @@
+{
+  "dependencies": {
+    "express": "^5.2.1",
+    "qrcode": "^1.5.4"
+  },
+  "name": "queueless",
+  "version": "1.0.0",
+  "description": "QueueLess \u2014 digital queue management prototype",
+  "private": true,
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node db.test.js && node engine.test.js && node api.test.js",
+    "test:engine": "node engine.test.js",
+    "test:api": "node api.test.js",
+    "reset": "curl -X POST http://localhost:3000/api/demo/reset",
+    "test:db": "node db.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.0.0"
+  }
+}

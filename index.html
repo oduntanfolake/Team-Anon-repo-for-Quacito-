@@ -36,9 +36,34 @@
         <button class="btn btn-ghost btn-block" id="btn-staff-login">
           Staff Login
         </button>
+        <button class="btn btn-ghost btn-block" id="btn-show-qr">
+          Show Entrance QR
+        </button>
       </div>
 
-      <p class="home-footnote">University Administration &middot; Prototype</p>
+      <p class="home-footnote">
+        University Administration &middot; Prototype
+        <span class="mode-pill" id="mode-pill" hidden></span>
+      </p>
+    </section>
+
+    <!-- ============ SCREEN 1b: ENTRANCE QR POSTER ============ -->
+    <section class="view" id="view-qr" data-view="qr">
+      <header class="screen-header">
+        <button class="btn-back" data-back="home" aria-label="Back">&larr;</button>
+        <h2>Tired of waiting?</h2>
+        <p class="screen-sub">Scan to join the queue</p>
+      </header>
+
+      <div class="qr-poster">
+        <div class="qr-frame" id="qr-frame">
+          <p class="qr-placeholder" id="qr-placeholder">Loading QR code&hellip;</p>
+        </div>
+        <p class="qr-url" id="qr-url"></p>
+        <p class="qr-hint" id="qr-hint">
+          Print this and put it at the office entrance.
+        </p>
+      </div>
     </section>
 
     <!-- ============ SCREEN 2: SERVICE SELECTION ============ -->
@@ -223,20 +248,20 @@
 
       <div class="section-title">Served Per Hour (Today)</div>
       <div class="graph-container">
-        <div class="bar-chart">
-          <div class="bar-col"><div class="bar" style="height:30%"></div><span class="bar-label">9 AM</span></div>
-          <div class="bar-col"><div class="bar" style="height:60%"></div><span class="bar-label">10 AM</span></div>
-          <div class="bar-col"><div class="bar" style="height:90%"></div><span class="bar-label">11 AM</span></div>
-          <div class="bar-col"><div class="bar" style="height:75%"></div><span class="bar-label">12 PM</span></div>
-          <div class="bar-col"><div class="bar" style="height:40%"></div><span class="bar-label">1 PM</span></div>
-          <div class="bar-col"><div class="bar" style="height:85%"></div><span class="bar-label">2 PM</span></div>
-          <div class="bar-col"><div class="bar" style="height:50%"></div><span class="bar-label">3 PM</span></div>
+        <div class="bar-chart" id="staff-bar-chart">
+          <!-- populated from real ticket data by app.js -->
         </div>
       </div>
     </section>
 
   </div>
 
+  <!-- Load order matters: the engine defines window.QueueLessEngine,
+       the client wraps it as window.QueueLess.api, then the UI uses it. -->
+  <script src="shared/schema.js"></script>
+  <script src="shared/memory-repo.js"></script>
+  <script src="shared/engine.js"></script>
+  <script src="api-client.js"></script>
   <script src="app.js"></script>
 </body>
 

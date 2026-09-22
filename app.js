@@ -1,186 +1,76 @@
 /* ===========================================================
-   QueueLess — Person 1 frontend logic
-   Handles: view navigation, rendering, and a mock queue engine.
+   QueueLess — frontend logic
+   Handles: view navigation and rendering.
 
-   FOR PERSON 2 (backend/database):
-   Every function in the "MOCK QUEUE ENGINE" section below is a
-   stand-in for a real API/database call. Each one is written to
-   return the same shape of data so you can swap the internals
-   (e.g. a fetch() to your endpoint) without touching the render
-   functions. Look for the "// BACKEND HOOK" comments.
+   All queue data and queue rules live behind QueueLess.api
+   (api-client.js -> the Express server, or the same engine run
+   locally if the server is unreachable). This file only asks for
+   data and paints it; it never mutates queue state directly.
    =========================================================== */
 
-/* ---------------------------------------------------------
-   MOCK QUEUE ENGINE
-   Replace the internals of these functions with real calls to
-   your database. Keep the same function names + return shapes
-   and the rest of the frontend keeps working unchanged.
---------------------------------------------------------- */
+var api = window.QueueLess.api;
 
-const DEFAULT_SERVICES = [
-  { id: "doc-collection", name: "Document Collection", currentlyServing: 37, waiting: 12, avgMinutesPerPerson: 3 },
-  { id: "registration", name: "Student Registration", currentlyServing: 18, waiting: 6, avgMinutesPerPerson: 4 },
-  { id: "payments", name: "Payment / Fees", currentlyServing: 52, waiting: 9, avgMinutesPerPerson: 2 },
-  { id: "transcripts", name: "Transcript Request", currentlyServing: 9, waiting: 3, avgMinutesPerPerson: 5 },
-];
+/* The demo organization, per the Master Blueprint. */
+var ORG_ID = "uni-admin";
 
-const QUEUE_STORAGE_KEY = "queueless_shared_state_v1";
-const STAFF_SESSION_KEY = "queueless_staff_session";
+/* The ticket this browser is holding, kept so the user can
+   reopen the app and still find their place in the queue. */
+var ACTIVE_TICKET_KEY = "queueless_active_ticket";
 
-function loadQueueState() {
+var activeTicketId = null;
+try {
+  activeTicketId = localStorage.getItem(ACTIVE_TICKET_KEY);
+} catch (error) {
+  console.warn("QueueLess: unable to read the saved ticket.", error);
+}
+
+function rememberTicket(ticketID) {
+  activeTicketId = ticketID;
   try {
-    const saved = JSON.parse(localStorage.getItem(QUEUE_STORAGE_KEY));
-    if (saved && Array.isArray(saved.services)) return saved;
+    if (ticketID) localStorage.setItem(ACTIVE_TICKET_KEY, ticketID);
+    else localStorage.removeItem(ACTIVE_TICKET_KEY);
   } catch (error) {
-    console.warn("QueueLess: unable to read saved queue state.", error);
-  }
-  return {
-    services: DEFAULT_SERVICES.map((service) => ({
-      ...service,
-      queue: Array.from({ length: service.waiting }, (_, i) => ({
-        ticket: service.currentlyServing + i + 1,
-        service: service.name,
-        status: "Waiting"
-      }))
-    })),
-    servedCount: 84,
-    currentServiceId: "doc-collection"
-  };
-}
-
-let sharedState = loadQueueState();
-let SERVICES = sharedState.services;
-
-function saveQueueState() {
-  sharedState.services = SERVICES;
-  try {
-    localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(sharedState));
-  } catch (error) {
-    console.warn("QueueLess: unable to save queue state.", error);
+    console.warn("QueueLess: unable to save the ticket.", error);
   }
 }
 
-let activeTicket = null;
-let lastKnownAhead = null;
+/* The service the staff dashboard is currently managing. */
+var staffServiceId = "doc-collection";
 
-function numberToLabel(n) {
-  return "A" + String(n).padStart(3, "0");
-}
-
-// BACKEND HOOK: replace with GET /services
-function getServices() {
-  return SERVICES;
-}
-
-// BACKEND HOOK: replace with GET /queues/:serviceId
-function getQueueSnapshot(serviceId) {
-  const service = SERVICES.find((s) => s.id === serviceId);
-  return {
-    service,
-    currentlyServingLabel: numberToLabel(service.currentlyServing),
-    peopleWaiting: service.waiting,
-    estimatedWaitMinutes: service.waiting * service.avgMinutesPerPerson,
-  };
-}
-
-// BACKEND HOOK: replace with POST /queues/:serviceId/join
-function joinQueue(serviceId) {
-  const service = SERVICES.find((s) => s.id === serviceId);
-  if (!service) return null;
-
-  service.queue = Array.isArray(service.queue) ? service.queue : [];
-  const highestQueued = service.queue.reduce(
-    (highest, item) => Math.max(highest, Number(item.ticket) || 0),
-    service.currentlyServing
-  );
-  const ticketNumber = highestQueued + 1;
-  service.waiting += 1;
-  service.queue.push({
-    ticket: ticketNumber,
-    service: service.name,
-    status: "Waiting"
-  });
-
-  activeTicket = { serviceId, number: ticketNumber, label: numberToLabel(ticketNumber) };
-  lastKnownAhead = null;
-  saveQueueState();
-  return activeTicket;
-}
-
-function getTicketStatus() {
-  if (!activeTicket) return null;
-  const service = SERVICES.find((s) => s.id === activeTicket.serviceId);
-  if (!service) return null;
-  const peopleAhead = Math.max(activeTicket.number - service.currentlyServing - 1, 0);
-  return {
-    service,
-    ticketLabel: activeTicket.label,
-    currentlyServingLabel: numberToLabel(service.currentlyServing),
-    peopleAhead,
-    estimatedWaitMinutes: peopleAhead * service.avgMinutesPerPerson,
-  };
-}
-
-function devSimulateCallNext(serviceId = activeTicket?.serviceId) {
-  const service = SERVICES.find((s) => s.id === serviceId);
-  if (!service || service.waiting <= 0) return false;
-  service.currentlyServing += 1;
-  service.waiting = Math.max(0, service.waiting - 1);
-  if (Array.isArray(service.queue) && service.queue.length) service.queue.shift();
-  sharedState.servedCount = Number(sharedState.servedCount || 0) + 1;
-  saveQueueState();
-  return true;
-}
-
-function leaveQueue() {
-  if (activeTicket) {
-    const service = SERVICES.find((s) => s.id === activeTicket.serviceId);
-    if (service) {
-      const index = Array.isArray(service.queue)
-        ? service.queue.findIndex((item) => item.ticket === activeTicket.number)
-        : -1;
-      if (index >= 0) {
-        service.queue.splice(index, 1);
-        service.waiting = Math.max(0, service.waiting - 1);
-        saveQueueState();
-      }
-    }
-  }
-  activeTicket = null;
-  lastKnownAhead = null;
-}
+var lastKnownAhead = null;
 
 /* ---------------------------------------------------------
    VIEW NAVIGATION
 --------------------------------------------------------- */
 
-// Only the Queue Status screen auto-refreshes (mimics a live
-// backend push). We start/stop it as that view opens/closes so
-// nothing keeps ticking in the background.
-let liveStatusInterval = null;
+// The Queue Status and dashboard screens re-read the backend on a
+// timer so they keep up with changes made in another tab. We
+// start/stop it as views open and close so nothing keeps polling
+// in the background.
+var liveRefreshInterval = null;
 
-function stopLiveStatus() {
-  if (liveStatusInterval) {
-    clearInterval(liveStatusInterval);
-    liveStatusInterval = null;
+function stopLiveRefresh() {
+  if (liveRefreshInterval) {
+    clearInterval(liveRefreshInterval);
+    liveRefreshInterval = null;
   }
 }
 
 function showView(name) {
-  document.querySelector(".app-frame")?.classList.toggle("staff-mode", name === "staff-dashboard" || name === "staff-login");
-  document.querySelectorAll(".view").forEach((el) => {
+  var frame = document.querySelector(".app-frame");
+  if (frame) {
+    frame.classList.toggle("staff-mode", name === "staff-dashboard" || name === "staff-login");
+  }
+  document.querySelectorAll(".view").forEach(function (el) {
     el.classList.toggle("active", el.dataset.view === name);
   });
   window.scrollTo(0, 0);
 
+  stopLiveRefresh();
   if (name === "status") {
-    stopLiveStatus();
-    liveStatusInterval = setInterval(() => {
-      devSimulateCallNext();
-      renderStatus();
-    }, 6000);
-  } else {
-    stopLiveStatus();
+    liveRefreshInterval = setInterval(renderStatus, 3000);
+  } else if (name === "staff-dashboard") {
+    liveRefreshInterval = setInterval(renderStaffQueue, 3000);
   }
 }
 
@@ -188,551 +78,451 @@ function showView(name) {
    SMALL UI HELPERS (toast + tactile feedback)
 --------------------------------------------------------- */
 
-let toastTimer = null;
+var toastTimer = null;
 function showToast(message) {
-  const toast = document.getElementById("toast");
+  var toast = document.getElementById("toast");
   toast.textContent = message;
   toast.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
+  toastTimer = setTimeout(function () { toast.classList.remove("show"); }, 2200);
 }
 
 // Adds a brief "pressed" ripple to any .btn on click — purely
 // cosmetic feedback layered on top of each button's real handler.
-document.querySelectorAll(".btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
+document.querySelectorAll(".btn").forEach(function (btn) {
+  btn.addEventListener("click", function () {
     btn.classList.remove("is-pressed");
     // Force reflow so the animation can re-trigger on rapid clicks.
     void btn.offsetWidth;
     btn.classList.add("is-pressed");
-    setTimeout(() => btn.classList.remove("is-pressed"), 500);
+    setTimeout(function () { btn.classList.remove("is-pressed"); }, 500);
   });
 });
 
 // Briefly flashes a class on an element to draw the eye to a
 // value that just changed (used for numbers ticking forward).
-function flash(el, className = "is-updated") {
+function flash(el, className) {
   if (!el) return;
+  className = className || "is-updated";
   el.classList.remove(className);
   void el.offsetWidth;
   el.classList.add(className);
 }
 
+function reportError(error) {
+  console.error("QueueLess:", error);
+  showToast(error && error.message ? error.message : "Something went wrong.");
+}
+
 /* ---------------------------------------------------------
-   RENDER FUNCTIONS
+   RENDER FUNCTIONS — USER SIDE
 --------------------------------------------------------- */
 
 function renderServiceList() {
-  const list = document.getElementById("service-list");
-  list.innerHTML = "";
-  getServices().forEach((service) => {
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.className = "service-option";
-    btn.innerHTML = `
-      <span>
-        <span class="service-name">${service.name}</span>
-        <span class="service-meta">${service.waiting} waiting</span>
-      </span>
-      <span class="service-arrow">&rarr;</span>
-    `;
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".service-option").forEach((el) =>
-        el.classList.remove("is-selected")
-      );
-      btn.classList.add("is-selected");
-      // Small pause so the selection state is visible before the
-      // screen transitions — makes the tap feel acknowledged.
-      setTimeout(() => openJoinScreen(service.id), 160);
+  var list = document.getElementById("service-list");
+  return api.getServices(ORG_ID).then(function (services) {
+    list.innerHTML = "";
+    services.forEach(function (service) {
+      var li = document.createElement("li");
+      var btn = document.createElement("button");
+      btn.className = "service-option";
+      btn.innerHTML =
+        '<span>' +
+          '<span class="service-name"></span>' +
+          '<span class="service-meta"></span>' +
+        '</span>' +
+        '<span class="service-arrow">&rarr;</span>';
+      btn.querySelector(".service-name").textContent = service.serviceName;
+      btn.querySelector(".service-meta").textContent = service.waiting + " waiting";
+      btn.addEventListener("click", function () {
+        document.querySelectorAll(".service-option").forEach(function (el) {
+          el.classList.remove("is-selected");
+        });
+        btn.classList.add("is-selected");
+        // Small pause so the selection state is visible before the
+        // screen transitions — makes the tap feel acknowledged.
+        setTimeout(function () { openJoinScreen(service.serviceID); }, 160);
+      });
+      li.appendChild(btn);
+      list.appendChild(li);
     });
-    li.appendChild(btn);
-    list.appendChild(li);
-  });
+  }).catch(reportError);
 }
 
-function openJoinScreen(serviceId) {
-  const snapshot = getQueueSnapshot(serviceId);
-  document.getElementById("join-service-name").textContent = snapshot.service.name;
-  document.getElementById("join-current-number").textContent = snapshot.currentlyServingLabel;
-  document.getElementById("join-people-waiting").textContent = snapshot.peopleWaiting;
-  document.getElementById("join-est-wait").textContent = `~${snapshot.estimatedWaitMinutes} min`;
+function openJoinScreen(serviceID) {
+  return api.getQueueSnapshot(serviceID).then(function (snapshot) {
+    document.getElementById("join-service-name").textContent = snapshot.serviceName;
+    document.getElementById("join-current-number").textContent = snapshot.currentlyServingLabel;
+    document.getElementById("join-people-waiting").textContent = snapshot.peopleWaiting;
+    document.getElementById("join-est-wait").textContent = "~" + snapshot.estimatedWaitMinutes + " min";
 
-  document.getElementById("btn-confirm-join").onclick = () => {
-    const ticket = joinQueue(serviceId);
-    renderTicket();
-    showView("ticket");
-    document.getElementById("ticket").classList.remove("is-fresh");
-    void document.getElementById("ticket").offsetWidth;
-    document.getElementById("ticket").classList.add("is-fresh");
-    showToast(`Joined the queue as ${ticket.label}`);
-  };
+    document.getElementById("btn-confirm-join").onclick = function () {
+      api.joinQueue(serviceID, { name: "Guest" }).then(function (ticket) {
+        rememberTicket(ticket.ticketID);
+        lastKnownAhead = null;
+        return renderTicket();
+      }).then(function () {
+        showView("ticket");
+        var ticketEl = document.getElementById("ticket");
+        ticketEl.classList.remove("is-fresh");
+        void ticketEl.offsetWidth;
+        ticketEl.classList.add("is-fresh");
+        showToast("Joined the queue as " + document.getElementById("ticket-number").textContent);
+      }).catch(reportError);
+    };
 
-  showView("join");
+    showView("join");
+  }).catch(reportError);
 }
 
 function renderTicket() {
-  const status = getTicketStatus();
-  if (!status) return;
+  if (!activeTicketId) return Promise.resolve();
+  return api.getTicket(activeTicketId).then(function (status) {
+    document.getElementById("ticket-number").textContent = status.ticketLabel;
+    document.getElementById("ticket-service-name").textContent = status.serviceName;
+    document.getElementById("ticket-ahead").textContent = status.peopleAhead;
+    document.getElementById("ticket-wait").textContent = "~" + status.estimatedWaitMinutes + " min";
+    document.getElementById("ticket-current").textContent = status.currentlyServingLabel || "—";
 
-  document.getElementById("ticket-number").textContent = status.ticketLabel;
-  document.getElementById("ticket-service-name").textContent = status.service.name;
-  document.getElementById("ticket-ahead").textContent = status.peopleAhead;
-  document.getElementById("ticket-wait").textContent = `~${status.estimatedWaitMinutes} min`;
-  document.getElementById("ticket-current").textContent = status.currentlyServingLabel;
-
-  const statusText = document.getElementById("ticket-status");
-  statusText.textContent = status.peopleAhead === 0
-    ? "You're up next!"
-    : "You're in the queue";
-  statusText.classList.toggle("is-live", status.peopleAhead === 0);
+    var statusText = document.getElementById("ticket-status");
+    statusText.textContent = status.isYourTurn
+      ? "It's your turn!"
+      : (status.peopleAhead === 0 ? "You're up next!" : "You're in the queue");
+    statusText.classList.toggle("is-live", status.peopleAhead === 0 || status.isYourTurn);
+  }).catch(reportError);
 }
 
 function renderStatus() {
-  const status = getTicketStatus();
-  if (!status) {
-    stopLiveStatus();
-    
-/* ---------------------------------------------------------
-   STAFF AUTH + DASHBOARD
-   Uses the same queue state as the student flow via localStorage.
---------------------------------------------------------- */
-
-const STAFF_EMAIL = "admin@queueless.com";
-const STAFF_PASSWORD = "admin123";
-
-function isStaffLoggedIn() {
-  return sessionStorage.getItem(STAFF_SESSION_KEY) === "true";
-}
-
-function refreshSharedState() {
-  sharedState = loadQueueState();
-  SERVICES = sharedState.services;
-}
-
-function renderStaffQueue() {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service) return;
-
-  const queue = Array.isArray(service.queue) ? service.queue : [];
-  const tbody = document.getElementById("staff-queue-body");
-  tbody.innerHTML = "";
-
-  queue.forEach((item, index) => {
-    const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${index + 1}</td>
-      <td style="font-weight:700;">${item.ticket}</td>
-      <td>${item.service}</td>
-      <td><span class="status-badge status-waiting">${item.status}</span></td>
-    `;
-    tbody.appendChild(row);
-  });
-
-  document.getElementById("staff-stat-serving").textContent = numberToLabel(service.currentlyServing);
-  document.getElementById("staff-current-ticket").textContent = numberToLabel(service.currentlyServing);
-  document.getElementById("staff-stat-waiting").textContent = service.waiting;
-  document.getElementById("staff-stat-served").textContent = Number(sharedState.servedCount || 0);
-}
-
-function openStaffDashboard() {
-  if (!isStaffLoggedIn()) {
-    showView("staff-login");
-    return;
-  }
-  renderStaffQueue();
-  showView("staff-dashboard");
-}
-
-document.getElementById("btn-staff-auth").addEventListener("click", () => {
-  const email = document.getElementById("staff-email").value.trim();
-  const password = document.getElementById("staff-password").value;
-  const error = document.getElementById("staff-login-error");
-
-  if (email !== STAFF_EMAIL || password !== STAFF_PASSWORD) {
-    error.textContent = "Invalid staff email or password.";
-    return;
+  if (!activeTicketId) {
+    stopLiveRefresh();
+    return Promise.resolve();
   }
 
-  sessionStorage.setItem(STAFF_SESSION_KEY, "true");
-  error.textContent = "";
-  showToast("Staff login successful");
-  openStaffDashboard();
-});
+  return api.getTicket(activeTicketId).then(function (status) {
+    var currentEl = document.getElementById("status-current");
+    var aheadEl = document.getElementById("status-ahead");
 
-document.getElementById("btn-staff-logout").addEventListener("click", () => {
-  sessionStorage.removeItem(STAFF_SESSION_KEY);
-  showView("home");
-  showToast("Logged out");
-});
+    document.getElementById("status-service-name").textContent = status.serviceName;
+    document.getElementById("status-number").textContent = status.ticketLabel;
+    currentEl.textContent = status.currentlyServingLabel || "—";
+    aheadEl.textContent = status.peopleAhead;
+    document.getElementById("status-wait").textContent = "~" + status.estimatedWaitMinutes + " min";
 
-document.getElementById("btn-call-next").addEventListener("click", () => {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service || service.waiting <= 0) {
-    showToast("No waiting tickets.");
-    renderStaffQueue();
-    return;
-  }
-  devSimulateCallNext(service.id);
-  renderStaffQueue();
-  showToast("Next ticket called.");
-});
+    // Draw attention to whichever number just moved (skip on the
+    // very first render for this ticket — nothing has "changed" yet).
+    if (lastKnownAhead !== null && lastKnownAhead !== status.peopleAhead) {
+      flash(currentEl);
+      flash(aheadEl);
+      showToast("Queue updated — staff called the next person");
+    }
+    lastKnownAhead = status.peopleAhead;
 
-document.getElementById("btn-mark-served").addEventListener("click", () => {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service || service.waiting <= 0) {
-    showToast("No waiting ticket to mark served.");
-    return;
-  }
-  devSimulateCallNext(service.id);
-  renderStaffQueue();
-  showToast("Ticket marked served.");
-});
+    // Progress bar: how far the ticket has moved from "just joined"
+    // to "being served now".
+    var totalSpan = Math.max(status.peopleAhead + 3, 1);
+    var progressPct = Math.min(100, Math.round((3 / totalSpan) * 100 + (status.peopleAhead === 0 ? 40 : 0)));
+    var fill = document.getElementById("progress-fill");
+    fill.style.width = (status.isYourTurn ? 100 : progressPct) + "%";
+    fill.classList.toggle("is-near", status.peopleAhead <= 3);
 
-document.getElementById("btn-skip-ticket").addEventListener("click", () => {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service || service.waiting <= 0) {
-    showToast("No waiting ticket to skip.");
-    return;
-  }
-  devSimulateCallNext(service.id);
-  renderStaffQueue();
-  showToast("Ticket skipped.");
-});
+    var message = document.getElementById("status-message");
+    message.classList.toggle("is-live", status.peopleAhead === 0 || status.isYourTurn);
 
-document.getElementById("btn-staff-theme").addEventListener("click", () => {
-  document.body.classList.toggle("theme-dark");
-});
-
-window.addEventListener("storage", (event) => {
-  if (event.key === QUEUE_STORAGE_KEY && document.querySelector('[data-view="staff-dashboard"].active')) {
-    renderStaffQueue();
-  }
-});
-
-showView("home");
-    return;
-  }
-
-  const currentEl = document.getElementById("status-current");
-  const aheadEl = document.getElementById("status-ahead");
-
-  document.getElementById("status-service-name").textContent = status.service.name;
-  document.getElementById("status-number").textContent = status.ticketLabel;
-  currentEl.textContent = status.currentlyServingLabel;
-  aheadEl.textContent = status.peopleAhead;
-  document.getElementById("status-wait").textContent = `~${status.estimatedWaitMinutes} min`;
-
-  // Draw attention to whichever number just moved (skip on the
-  // very first render for this ticket — nothing has "changed" yet).
-  if (lastKnownAhead !== null && lastKnownAhead !== status.peopleAhead) {
-    flash(currentEl);
-    flash(aheadEl);
-    showToast("Queue updated — staff called the next person");
-  }
-  lastKnownAhead = status.peopleAhead;
-
-  // Progress bar: how far the ticket has moved from "just joined"
-  // to "being served now".
-  const totalSpan = Math.max(status.peopleAhead + 3, 1);
-  const progressPct = Math.min(100, Math.round(((3) / totalSpan) * 100 + (status.peopleAhead === 0 ? 40 : 0)));
-  const fill = document.getElementById("progress-fill");
-  fill.style.width = progressPct + "%";
-  fill.classList.toggle("is-near", status.peopleAhead <= 3);
-
-  const message = document.getElementById("status-message");
-  message.classList.toggle("is-live", status.peopleAhead === 0);
-  if (status.peopleAhead === 0) {
-    message.textContent = "You're next — please head to the counter.";
-    stopLiveStatus();
-  } else if (status.peopleAhead <= 3) {
-    message.textContent = "You're getting close!";
-  } else {
-    message.textContent = "Feel free to step away — we'll track your spot.";
-  }
+    if (status.isYourTurn) {
+      message.textContent = "YOUR TURN — please proceed to Counter " + (status.counter || 2) + ".";
+      stopLiveRefresh();
+    } else if (status.status === "served") {
+      message.textContent = "You have been served. Thank you!";
+      stopLiveRefresh();
+    } else if (status.status === "skipped") {
+      message.textContent = "Your number was called and missed. Please speak to the front desk.";
+      stopLiveRefresh();
+    } else if (status.peopleAhead === 0) {
+      message.textContent = "You're next — please head to the counter.";
+    } else if (status.peopleAhead <= 3) {
+      message.textContent = "You're getting close!";
+    } else {
+      message.textContent = "Feel free to step away — we'll track your spot.";
+    }
+  }).catch(reportError);
 }
 
 /* ---------------------------------------------------------
    WIRE UP STATIC BUTTONS
 --------------------------------------------------------- */
 
-document.getElementById("btn-join-queue").addEventListener("click", () => {
-  renderServiceList();
-  showView("services");
+document.getElementById("btn-join-queue").addEventListener("click", function () {
+  renderServiceList().then(function () { showView("services"); });
 });
 
-// Staff Login belongs to Person 3's admin build — this just
-// routes back home for now so the button isn't a dead end.
-document.getElementById("btn-staff-login").addEventListener("click", () => {
+document.getElementById("btn-staff-login").addEventListener("click", function () {
   document.getElementById("staff-login-error").textContent = "";
-  showView("staff-login");
+  if (api.isStaffLoggedIn()) openStaffDashboard();
+  else showView("staff-login");
 });
 
-document.querySelectorAll("[data-back]").forEach((btn) => {
-  btn.addEventListener("click", () => showView(btn.dataset.back));
+document.querySelectorAll("[data-back]").forEach(function (btn) {
+  btn.addEventListener("click", function () { showView(btn.dataset.back); });
 });
 
-document.getElementById("btn-track-status").addEventListener("click", () => {
-  renderStatus();
-  showView("status");
+document.getElementById("btn-track-status").addEventListener("click", function () {
+  renderStatus().then(function () { showView("status"); });
 });
 
-document.getElementById("btn-leave-queue").addEventListener("click", () => {
-  leaveQueue();
-  
-/* ---------------------------------------------------------
-   STAFF AUTH + DASHBOARD
-   Uses the same queue state as the student flow via localStorage.
---------------------------------------------------------- */
-
-const STAFF_EMAIL = "admin@queueless.com";
-const STAFF_PASSWORD = "admin123";
-
-function isStaffLoggedIn() {
-  return sessionStorage.getItem(STAFF_SESSION_KEY) === "true";
-}
-
-function refreshSharedState() {
-  sharedState = loadQueueState();
-  SERVICES = sharedState.services;
-}
-
-function renderStaffQueue() {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service) return;
-
-  const queue = Array.isArray(service.queue) ? service.queue : [];
-  const tbody = document.getElementById("staff-queue-body");
-  tbody.innerHTML = "";
-
-  queue.forEach((item, index) => {
-    const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${index + 1}</td>
-      <td style="font-weight:700;">${item.ticket}</td>
-      <td>${item.service}</td>
-      <td><span class="status-badge status-waiting">${item.status}</span></td>
-    `;
-    tbody.appendChild(row);
-  });
-
-  document.getElementById("staff-stat-serving").textContent = numberToLabel(service.currentlyServing);
-  document.getElementById("staff-current-ticket").textContent = numberToLabel(service.currentlyServing);
-  document.getElementById("staff-stat-waiting").textContent = service.waiting;
-  document.getElementById("staff-stat-served").textContent = Number(sharedState.servedCount || 0);
-}
-
-function openStaffDashboard() {
-  if (!isStaffLoggedIn()) {
-    showView("staff-login");
+document.getElementById("btn-leave-queue").addEventListener("click", function () {
+  if (!activeTicketId) {
+    showView("home");
     return;
   }
-  renderStaffQueue();
-  showView("staff-dashboard");
-}
-
-document.getElementById("btn-staff-auth").addEventListener("click", () => {
-  const email = document.getElementById("staff-email").value.trim();
-  const password = document.getElementById("staff-password").value;
-  const error = document.getElementById("staff-login-error");
-
-  if (email !== STAFF_EMAIL || password !== STAFF_PASSWORD) {
-    error.textContent = "Invalid staff email or password.";
-    return;
-  }
-
-  sessionStorage.setItem(STAFF_SESSION_KEY, "true");
-  error.textContent = "";
-  showToast("Staff login successful");
-  openStaffDashboard();
+  api.leaveQueue(activeTicketId).then(function () {
+    rememberTicket(null);
+    lastKnownAhead = null;
+    showView("home");
+    showToast("You left the queue");
+  }).catch(reportError);
 });
 
-document.getElementById("btn-staff-logout").addEventListener("click", () => {
-  sessionStorage.removeItem(STAFF_SESSION_KEY);
-  showView("home");
-  showToast("Logged out");
+// Solo-demo helper: advances the queue without a second browser
+// tab open. During the real demo the staff dashboard drives this.
+document.getElementById("btn-simulate-advance").addEventListener("click", function () {
+  if (!activeTicketId) return;
+  api.getTicket(activeTicketId)
+    .then(function (ticket) { return api.callNext(ticket.serviceID); })
+    .then(renderStatus)
+    .catch(reportError);
 });
-
-document.getElementById("btn-call-next").addEventListener("click", () => {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service || service.waiting <= 0) {
-    showToast("No waiting tickets.");
-    renderStaffQueue();
-    return;
-  }
-  devSimulateCallNext(service.id);
-  renderStaffQueue();
-  showToast("Next ticket called.");
-});
-
-document.getElementById("btn-mark-served").addEventListener("click", () => {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service || service.waiting <= 0) {
-    showToast("No waiting ticket to mark served.");
-    return;
-  }
-  devSimulateCallNext(service.id);
-  renderStaffQueue();
-  showToast("Ticket marked served.");
-});
-
-document.getElementById("btn-skip-ticket").addEventListener("click", () => {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service || service.waiting <= 0) {
-    showToast("No waiting ticket to skip.");
-    return;
-  }
-  devSimulateCallNext(service.id);
-  renderStaffQueue();
-  showToast("Ticket skipped.");
-});
-
-document.getElementById("btn-staff-theme").addEventListener("click", () => {
-  document.body.classList.toggle("theme-dark");
-});
-
-window.addEventListener("storage", (event) => {
-  if (event.key === QUEUE_STORAGE_KEY && document.querySelector('[data-view="staff-dashboard"].active')) {
-    renderStaffQueue();
-  }
-});
-
-showView("home");
-  showToast("You left the queue");
-});
-
-document.getElementById("btn-simulate-advance").addEventListener("click", () => {
-  devSimulateCallNext();
-  renderStatus();
-});
-
 
 /* ---------------------------------------------------------
    STAFF AUTH + DASHBOARD
-   Uses the same queue state as the student flow via localStorage.
+   Reads the same backend as the student flow, so the two sides
+   stay in step whether they are in one tab or two.
 --------------------------------------------------------- */
 
-const STAFF_EMAIL = "admin@queueless.com";
-const STAFF_PASSWORD = "admin123";
-
-function isStaffLoggedIn() {
-  return sessionStorage.getItem(STAFF_SESSION_KEY) === "true";
-}
-
-function refreshSharedState() {
-  sharedState = loadQueueState();
-  SERVICES = sharedState.services;
-}
-
 function renderStaffQueue() {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service) return;
+  return Promise.all([
+    api.getWaitingList(staffServiceId),
+    api.getStats(staffServiceId)
+  ]).then(function (results) {
+    var rows = results[0];
+    var stats = results[1];
 
-  const queue = Array.isArray(service.queue) ? service.queue : [];
-  const tbody = document.getElementById("staff-queue-body");
-  tbody.innerHTML = "";
+    var tbody = document.getElementById("staff-queue-body");
+    tbody.innerHTML = "";
 
-  queue.forEach((item, index) => {
-    const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${index + 1}</td>
-      <td style="font-weight:700;">${item.ticket}</td>
-      <td>${item.service}</td>
-      <td><span class="status-badge status-waiting">${item.status}</span></td>
-    `;
-    tbody.appendChild(row);
+    rows.forEach(function (row) {
+      var tr = document.createElement("tr");
+      var badgeClass = row.status === "Serving" ? "status-serving" : "status-waiting";
+      tr.innerHTML =
+        '<td class="col-position"></td>' +
+        '<td style="font-weight:700;"></td>' +
+        '<td class="col-service"></td>' +
+        '<td><span class="status-badge ' + badgeClass + '"></span></td>';
+      tr.children[0].textContent = row.status === "Serving" ? "—" : row.position;
+      tr.children[1].textContent = row.number;
+      tr.children[2].textContent = row.serviceName;
+      tr.children[3].firstChild.textContent = row.status;
+      tbody.appendChild(tr);
+    });
+
+    var servingLabel = stats.currentlyServingLabel || "—";
+    document.getElementById("staff-stat-serving").textContent = servingLabel;
+    document.getElementById("staff-current-ticket").textContent = servingLabel;
+    document.getElementById("staff-stat-waiting").textContent = stats.currentlyWaiting;
+    document.getElementById("staff-stat-served").textContent = stats.servedToday;
+    document.getElementById("staff-stat-wait").textContent =
+      stats.avgWaitMinutes === null ? "—" : stats.avgWaitMinutes + "m";
+
+    renderServedChart(stats.servedByHour);
+  }).catch(reportError);
+}
+
+/* Served-per-hour bars, scaled to the busiest hour. Replaces the
+   fixed heights the markup used to carry, so the chart is now
+   evidence rather than decoration. */
+function renderServedChart(servedByHour) {
+  var chart = document.getElementById("staff-bar-chart");
+  if (!chart) return;
+
+  chart.innerHTML = "";
+  if (!servedByHour || !servedByHour.length) {
+    var empty = document.createElement("p");
+    empty.className = "chart-empty";
+    empty.textContent = "No one has been served yet today.";
+    chart.appendChild(empty);
+    return;
+  }
+
+  var busiest = servedByHour.reduce(function (max, row) {
+    return Math.max(max, row.count);
+  }, 0) || 1;
+
+  var peakLabelled = false;
+
+  servedByHour.forEach(function (row) {
+    // Label the busiest hour only, and only once if several tie.
+    var isPeak = row.count === busiest && !peakLabelled;
+    if (isPeak) peakLabelled = true;
+
+    var col = document.createElement("div");
+    col.className = "bar-col" + (isPeak ? " is-peak" : "");
+    col.title = row.count + " served at " + formatHour(row.hour);
+
+    var track = document.createElement("div");
+    track.className = "bar-track";
+
+    var value = document.createElement("span");
+    value.className = "bar-value";
+    value.textContent = row.count;
+
+    var bar = document.createElement("div");
+    bar.className = "bar";
+    // A floor of 4% keeps a quiet hour visible instead of vanishing.
+    bar.style.height = Math.max(4, Math.round((row.count / busiest) * 100)) + "%";
+
+    var caption = document.createElement("span");
+    caption.className = "bar-label";
+    caption.textContent = formatHour(row.hour);
+
+    bar.appendChild(value);
+    track.appendChild(bar);
+    col.appendChild(track);
+    col.appendChild(caption);
+    chart.appendChild(col);
   });
+}
 
-  document.getElementById("staff-stat-serving").textContent = numberToLabel(service.currentlyServing);
-  document.getElementById("staff-current-ticket").textContent = numberToLabel(service.currentlyServing);
-  document.getElementById("staff-stat-waiting").textContent = service.waiting;
-  document.getElementById("staff-stat-served").textContent = Number(sharedState.servedCount || 0);
+function formatHour(hour) {
+  var suffix = hour < 12 ? "AM" : "PM";
+  var display = hour % 12 === 0 ? 12 : hour % 12;
+  return display + " " + suffix;
 }
 
 function openStaffDashboard() {
-  if (!isStaffLoggedIn()) {
+  if (!api.isStaffLoggedIn()) {
     showView("staff-login");
     return;
   }
-  renderStaffQueue();
-  showView("staff-dashboard");
+  renderStaffQueue().then(function () { showView("staff-dashboard"); });
 }
 
-document.getElementById("btn-staff-auth").addEventListener("click", () => {
-  const email = document.getElementById("staff-email").value.trim();
-  const password = document.getElementById("staff-password").value;
-  const error = document.getElementById("staff-login-error");
+document.getElementById("btn-staff-auth").addEventListener("click", function () {
+  var email = document.getElementById("staff-email").value;
+  var password = document.getElementById("staff-password").value;
+  var error = document.getElementById("staff-login-error");
 
-  if (email !== STAFF_EMAIL || password !== STAFF_PASSWORD) {
-    error.textContent = "Invalid staff email or password.";
-    return;
-  }
-
-  sessionStorage.setItem(STAFF_SESSION_KEY, "true");
-  error.textContent = "";
-  showToast("Staff login successful");
-  openStaffDashboard();
+  api.staffLogin(email, password).then(function () {
+    error.textContent = "";
+    showToast("Staff login successful");
+    openStaffDashboard();
+  }).catch(function (err) {
+    error.textContent = err.message;
+  });
 });
 
-document.getElementById("btn-staff-logout").addEventListener("click", () => {
-  sessionStorage.removeItem(STAFF_SESSION_KEY);
-  showView("home");
-  showToast("Logged out");
+document.getElementById("btn-staff-logout").addEventListener("click", function () {
+  api.staffLogout().then(function () {
+    showView("home");
+    showToast("Logged out");
+  });
 });
 
-document.getElementById("btn-call-next").addEventListener("click", () => {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service || service.waiting <= 0) {
-    showToast("No waiting tickets.");
-    renderStaffQueue();
-    return;
-  }
-  devSimulateCallNext(service.id);
-  renderStaffQueue();
-  showToast("Next ticket called.");
+document.getElementById("btn-call-next").addEventListener("click", function () {
+  api.callNext(staffServiceId).then(function (result) {
+    if (!result.called) {
+      showToast("No one is waiting.");
+    } else {
+      showToast("Now serving " + result.called);
+    }
+    return renderStaffQueue();
+  }).catch(reportError);
 });
 
-document.getElementById("btn-mark-served").addEventListener("click", () => {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service || service.waiting <= 0) {
-    showToast("No waiting ticket to mark served.");
-    return;
-  }
-  devSimulateCallNext(service.id);
-  renderStaffQueue();
-  showToast("Ticket marked served.");
+document.getElementById("btn-mark-served").addEventListener("click", function () {
+  api.markServed(staffServiceId).then(function (result) {
+    showToast(result.served + " marked served.");
+    return renderStaffQueue();
+  }).catch(reportError);
 });
 
-document.getElementById("btn-skip-ticket").addEventListener("click", () => {
-  refreshSharedState();
-  const service = SERVICES.find((s) => s.id === "doc-collection") || SERVICES[0];
-  if (!service || service.waiting <= 0) {
-    showToast("No waiting ticket to skip.");
-    return;
-  }
-  devSimulateCallNext(service.id);
-  renderStaffQueue();
-  showToast("Ticket skipped.");
+document.getElementById("btn-skip-ticket").addEventListener("click", function () {
+  api.skip(staffServiceId).then(function (result) {
+    showToast(
+      result.called
+        ? result.skipped + " skipped — now serving " + result.called
+        : result.skipped + " skipped."
+    );
+    return renderStaffQueue();
+  }).catch(reportError);
 });
 
-document.getElementById("btn-staff-theme").addEventListener("click", () => {
+document.getElementById("btn-staff-theme").addEventListener("click", function () {
   document.body.classList.toggle("theme-dark");
 });
 
-window.addEventListener("storage", (event) => {
-  if (event.key === QUEUE_STORAGE_KEY && document.querySelector('[data-view="staff-dashboard"].active')) {
-    renderStaffQueue();
+/* ---------------------------------------------------------
+   ENTRANCE QR POSTER
+   The QR is rendered by the server so the page needs no QR
+   library and still works with no internet at the venue. It
+   encodes the address this page was actually opened on, which is
+   the one a phone on the same wifi can reach.
+--------------------------------------------------------- */
+
+function renderQr() {
+  var frame = document.getElementById("qr-frame");
+  var urlLabel = document.getElementById("qr-url");
+  var hint = document.getElementById("qr-hint");
+  var target = window.location.origin + "/";
+
+  urlLabel.textContent = target;
+
+  if (api.getMode() !== "server") {
+    frame.innerHTML = '<p class="qr-placeholder" id="qr-placeholder"></p>';
+    frame.firstChild.textContent = "QR needs the server running.";
+    hint.textContent = "Start the server with `npm start`, then reopen this screen.";
+    return Promise.resolve();
   }
+
+  hint.textContent = "Print this, or show it on screen for a phone to scan.";
+
+  return fetch(api.getQrEndpoint() + "?url=" + encodeURIComponent(target))
+    .then(function (res) {
+      if (!res.ok) throw new Error("Could not render the QR code.");
+      return res.text();
+    })
+    .then(function (svg) { frame.innerHTML = svg; })
+    .catch(function (err) {
+      frame.innerHTML = '<p class="qr-placeholder"></p>';
+      frame.firstChild.textContent = err.message;
+    });
+}
+
+document.getElementById("btn-show-qr").addEventListener("click", function () {
+  showView("qr");
+  renderQr();
+});
+
+/* A quiet badge on the home screen when the server is not up, so
+   the team notices before the audience does. */
+api.whenReady().then(function (mode) {
+  var pill = document.getElementById("mode-pill");
+  if (!pill) return;
+  if (mode === "server") {
+    pill.hidden = true;
+  } else {
+    pill.hidden = false;
+    pill.textContent = "Offline mode";
+    pill.title = "No server reachable — this browser is running the queue on its own.";
+  }
+});
+
+/* Live updates: the backend tells us when anything changes,
+   including changes made in another browser tab. */
+api.subscribe(function () {
+  var active = document.querySelector(".view.active");
+  if (!active) return;
+  if (active.dataset.view === "staff-dashboard") renderStaffQueue();
+  else if (active.dataset.view === "status") renderStatus();
+  else if (active.dataset.view === "ticket") renderTicket();
 });
 
 showView("home");
